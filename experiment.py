@@ -166,7 +166,7 @@ train_settings = dict((k, settings[k]) for k in train_vars)
 t0 = time()
 best_epoch = 0
 print('epoch\ttime\tD_loss\tG_loss\tmmd2\tthat\tpdf_sample\tpdf_real')
-print(f'num_epocs={num_epochs}')
+print('num_epocs=', num_epochs)
 for epoch in range(num_epochs):
     D_loss_curr, G_loss_curr = model.train_epoch(epoch, samples['train'], labels['train'],
                                         sess, Z, X, CG, CD, CS,
