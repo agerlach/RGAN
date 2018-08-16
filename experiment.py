@@ -11,6 +11,7 @@ import model
 import utils
 import eval
 
+
 from time import time
 from math import floor
 from mmd import rbf_mmd2, median_pairwise_distance, mix_rbf_mmd2_and_ratio
@@ -182,9 +183,9 @@ for epoch in range(num_epochs):
         else:
             vis_sample = sess.run(G_sample, feed_dict={Z: vis_Z})
 #        print('vis_sample=',vis_sample)
-#        plotting.visualise_at_epoch(vis_sample, data, 
-#                predict_labels, one_hot, epoch, identifier, num_epochs,
-#                resample_rate_in_min, multivariate_mnist, seq_length, labels=vis_C)
+       plotting.visualise_at_epoch(vis_sample, data,
+               predict_labels, one_hot, epoch, identifier, num_epochs,
+               resample_rate_in_min, multivariate_mnist, seq_length, labels=vis_C)
    
     # compute mmd2 and, if available, prob density
     if epoch % eval_freq == 0:

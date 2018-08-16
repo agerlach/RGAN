@@ -1,6 +1,6 @@
 {
 "settings_file": "",
-"data": "sine",
+"data": "gp_rbf",
 "num_samples": 14000,
 "seq_length": 30,
 "num_signals": 1,
