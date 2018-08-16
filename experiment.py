@@ -166,6 +166,7 @@ train_settings = dict((k, settings[k]) for k in train_vars)
 t0 = time()
 best_epoch = 0
 print('epoch\ttime\tD_loss\tG_loss\tmmd2\tthat\tpdf_sample\tpdf_real')
+print(f'num_epocs={num_epochs}')
 for epoch in range(num_epochs):
     D_loss_curr, G_loss_curr = model.train_epoch(epoch, samples['train'], labels['train'],
                                         sess, Z, X, CG, CD, CS,
@@ -180,13 +181,13 @@ for epoch in range(num_epochs):
             vis_sample = sess.run(G_sample, feed_dict={Z: vis_Z, CG: vis_C})
         else:
             vis_sample = sess.run(G_sample, feed_dict={Z: vis_Z})
-        plotting.visualise_at_epoch(vis_sample, data, 
-                predict_labels, one_hot, epoch, identifier, num_epochs,
-                resample_rate_in_min, multivariate_mnist, seq_length, labels=vis_C)
+#        print('vis_sample=',vis_sample)
+#        plotting.visualise_at_epoch(vis_sample, data, 
+#                predict_labels, one_hot, epoch, identifier, num_epochs,
+#                resample_rate_in_min, multivariate_mnist, seq_length, labels=vis_C)
    
     # compute mmd2 and, if available, prob density
-    that_np = 0.0
-    if False:#epoch % eval_freq == 0:
+    if epoch % eval_freq == 0:
         ## how many samples to evaluate with?
         eval_Z = model.sample_Z(eval_size, seq_length, latent_dim, use_time)
         if 'eICU_task' in data:
@@ -254,8 +255,10 @@ for epoch in range(num_epochs):
     ## print
     t = time() - t0
     try:
-        print('%d\t%.2f\t%.4f\t%.4f\t%.5f\t%.0f\t%.2f\t%.2f' % (epoch, t, D_loss_curr, G_loss_curr, mmd2, that_np, pdf_sample, pdf_real))
+#        print('%d\t%.2f\t%.4f\t%.4f\t%.5f\t%.0f\t%.2f\t%.2f' % (epoch, t, D_loss_curr, G_loss_curr, mmd2, that_np, pdf_sample, pdf_real))
+        print(f"{epoch}\t{t}\t{D_loss_curr}\t{G_loss_curr}\t{mmd2}\t{that_np}\t{pdf_sample}\t{pdf_real}")
     except TypeError:       # pdf are missing (format as strings)
+        print((epoch, t, D_loss_curr, G_loss_curr, mmd2, that_np, pdf_sample, pdf_real))    
         print('%d\t%.2f\t%.4f\t%.4f\t%.5f\t%.0f\t %s\t %s' % (epoch, t, D_loss_curr, G_loss_curr, mmd2, that_np, pdf_sample, pdf_real))
 
     ## save trace
@@ -270,7 +273,7 @@ for epoch in range(num_epochs):
         if labels['train'] is not None:
             labels['train'] = labels['train'][perm]
     
-    if epoch % 50 == 0:
+    if epoch % 5 == 0:
         model.dump_parameters(identifier + '_' + str(epoch), sess)
 
 trace.flush()
