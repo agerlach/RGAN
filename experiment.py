@@ -257,7 +257,7 @@ for epoch in range(num_epochs):
     try:
 #        print('%d\t%.2f\t%.4f\t%.4f\t%.5f\t%.0f\t%.2f\t%.2f' % (epoch, t, D_loss_curr, G_loss_curr, mmd2, that_np, pdf_sample, pdf_real))
 #         print(f"{epoch}\t{t}\t{D_loss_curr}\t{G_loss_curr}\t{mmd2}\t{that_np}\t{pdf_sample}\t{pdf_real}")
-        print(epoch, t, D_loss_curr, G_loss_curr, mmd2, that_np, pdf_sample, pdf_real")
+        print(epoch, t, D_loss_curr, G_loss_curr, mmd2, that_np, pdf_sample, pdf_real)
 
     except TypeError:       # pdf are missing (format as strings)
         print((epoch, t, D_loss_curr, G_loss_curr, mmd2, that_np, pdf_sample, pdf_real))    
