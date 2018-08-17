@@ -7,6 +7,8 @@ from time import time
 import json
 import random
 import os
+
+import load_stripped_data as LSD
  
 import sys  
 
@@ -51,6 +53,19 @@ def get_samples_and_labels(settings):
         assert train_labels.shape[1] == settings['cond_dim']
         # normalise to between -1, 1
         train, vali, test = normalise_data(train, vali, test)
+    elif settings['data'] == 'wind':
+
+        pdf = None
+        labels = None
+
+        filepath = '../../Data/stripped_wind_groups/group_1/'
+        nseq = 120
+        samples, _n_samples = LSD.getRGAN_data(filepath, nseq)
+        print(samples.shape)
+
+        train, vali, test = split(samples, [0.6, 0.2, 0.2], normalise=settings['normalise'])
+        train_labels, vali_labels, test_labels = None, None, None
+
     else:
         # generate the data
         data_vars = ['num_samples', 'seq_length', 'num_signals', 'freq_low',
