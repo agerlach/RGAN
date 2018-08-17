@@ -11,12 +11,16 @@ import model
 import utils
 import eval
 
-
 from time import time
 from math import floor
 from mmd import rbf_mmd2, median_pairwise_distance, mix_rbf_mmd2_and_ratio
 
 tf.logging.set_verbosity(tf.logging.ERROR)
+
+def set_trace():
+    from IPython.core.debugger import Pdb
+    import sys
+    Pdb(color_scheme='Linux').set_trace(sys._getframe().f_back)
 
 # --- get settings --- #
 # parse command line arguments, or use defaults
@@ -34,6 +38,8 @@ for (k, v) in settings.items(): print(v, '\t',  k)
 # add the settings to local environment
 # WARNING: at this point a lot of variables appear
 locals().update(settings)
+
+identifier = identifier + str(batch_size)
 json.dump(settings, open('./experiments/settings/' + identifier + '.txt', 'w'), indent=0)
 
 if not data == 'load':
@@ -60,7 +66,7 @@ D_loss, G_loss = model.GAN_loss(Z, X, generator_settings, discriminator_settings
 D_solver, G_solver, priv_accountant = model.GAN_solvers(D_loss, G_loss, learning_rate, batch_size, 
         total_examples=samples['train'].shape[0], l2norm_bound=l2norm_bound,
         batches_per_lot=batches_per_lot, sigma=dp_sigma, dp=dp)
-G_sample = model.generator(Z, **generator_settings, reuse=True, c=CG)
+G_sample = model.generator(Z, reuse=True, c=CG, **generator_settings)
 
 # --- evaluation --- #
 
@@ -73,7 +79,7 @@ heuristic_sigma_training = median_pairwise_distance(samples['vali'])
 best_mmd2_so_far = 1000
 
 # optimise sigma using that (that's t-hat)
-batch_multiplier = 5000//batch_size
+batch_multiplier = 2000//batch_size
 eval_size = batch_multiplier*batch_size
 eval_eval_size = int(0.2*eval_size)
 eval_real_PH = tf.placeholder(tf.float32, [eval_eval_size, seq_length, num_generated_features])
@@ -90,6 +96,7 @@ sigma_opt_thresh = 0.001
 sigma_opt_vars = [var for var in tf.global_variables() if 'SIGMA_optimizer' in var.name]
 
 sess = tf.Session()
+#sess = tf.Session(config=tf.ConfigProto(log_device_placement=True))
 sess.run(tf.global_variables_initializer())
 
 vis_Z = model.sample_Z(batch_size, seq_length, latent_dim, use_time)
@@ -118,6 +125,11 @@ else:
     vis_sample = sess.run(G_sample, feed_dict={Z: vis_Z})
     vis_C = None
 
+# # Print real samples
+#np.savetxt("./experiments/data/test-train.csv", np.squeeze(samples['train']), delimiter=",")
+# np.savetxt("./experiments/data/test-vali.csv", np.squeeze(samples['vali']), delimiter=",")
+# np.savetxt("./experiments/data/test-test.csv", np.squeeze(samples['test']), delimiter=",")
+
 vis_real_indices = np.random.choice(len(samples['vali']), size=6)
 vis_real = np.float32(samples['vali'][vis_real_indices, :, :])
 if not labels['vali'] is None:
@@ -145,8 +157,11 @@ if data == 'mnist':
 elif 'eICU' in data:
     plotting.vis_eICU_patients_downsampled(vis_real, resample_rate_in_min, 
             identifier=identifier + '_real', idx=0)
+elif 'basque' in data:
+    plotting.save_plot_one_sample(vis_real, 0, identifier + '_real', n_samples=4, ncol=2,
+                            num_epochs=num_epochs)
 else:
-    plotting.save_plot_sample(vis_real, 0, identifier + '_real', n_samples=6, 
+    plotting.save_plot_sample(vis_real, 0, identifier + '_real', n_samples=6, ncol=2,
                             num_epochs=num_epochs)
 
 # for dp
@@ -155,7 +170,7 @@ dp_trace = open('./experiments/traces/' + identifier + '.dptrace.txt', 'w')
 dp_trace.write('epoch ' + ' eps' .join(map(str, target_eps)) + '\n')
 
 trace = open('./experiments/traces/' + identifier + '.trace.txt', 'w')
-trace.write('epoch time D_loss G_loss mmd2 that pdf real_pdf\n')
+trace.write('epoch time D_loss G_loss that pdf real_pdf\n')
 
 # --- train --- #
 train_vars = ['batch_size', 'D_rounds', 'G_rounds', 'use_time', 'seq_length', 
@@ -166,14 +181,20 @@ train_settings = dict((k, settings[k]) for k in train_vars)
 
 t0 = time()
 best_epoch = 0
-print('epoch\ttime\tD_loss\tG_loss\tmmd2\tthat\tpdf_sample\tpdf_real')
-print('num_epocs=', num_epochs)
+print('epoch\ttime\tD_loss\tG_loss')
 for epoch in range(num_epochs):
     D_loss_curr, G_loss_curr = model.train_epoch(epoch, samples['train'], labels['train'],
                                         sess, Z, X, CG, CD, CS,
                                         D_loss, G_loss,
-                                        D_solver, G_solver, 
+                                        D_solver, G_solver,
                                         **train_settings)
+    if 'basque' in data:
+        D_loss_curr, G_loss_curr = model.train_epoch(epoch, samples, labels,
+                                        sess, Z, X, CG, CD, CS,
+                                        D_loss, G_loss,
+                                        D_solver, G_solver,
+                                        **train_settings)
+
     # -- eval -- #
 
     # visualise plots of generated samples, with/without labels
@@ -182,13 +203,12 @@ for epoch in range(num_epochs):
             vis_sample = sess.run(G_sample, feed_dict={Z: vis_Z, CG: vis_C})
         else:
             vis_sample = sess.run(G_sample, feed_dict={Z: vis_Z})
-#        print('vis_sample=',vis_sample)
-        plotting.visualise_at_epoch(vis_sample, data,
+        plotting.visualise_at_epoch(vis_sample, data, 
                 predict_labels, one_hot, epoch, identifier, num_epochs,
                 resample_rate_in_min, multivariate_mnist, seq_length, labels=vis_C)
    
     # compute mmd2 and, if available, prob density
-    if epoch % eval_freq == 0:
+    if epoch % eval_freq == -100: # don't calculate mmd2
         ## how many samples to evaluate with?
         eval_Z = model.sample_Z(eval_size, seq_length, latent_dim, use_time)
         if 'eICU_task' in data:
@@ -238,7 +258,7 @@ for epoch in range(num_epochs):
             pdf_real = 'NA'
     else:
         # report nothing this epoch
-        mmd2 = 'NA'
+        # mmd2 = 'NA'
         that = 'NA'
         pdf_sample = 'NA'
         pdf_real = 'NA'
@@ -256,16 +276,12 @@ for epoch in range(num_epochs):
     ## print
     t = time() - t0
     try:
-#        print('%d\t%.2f\t%.4f\t%.4f\t%.5f\t%.0f\t%.2f\t%.2f' % (epoch, t, D_loss_curr, G_loss_curr, mmd2, that_np, pdf_sample, pdf_real))
-#         print(f"{epoch}\t{t}\t{D_loss_curr}\t{G_loss_curr}\t{mmd2}\t{that_np}\t{pdf_sample}\t{pdf_real}")
-        print(epoch, t, D_loss_curr, G_loss_curr, mmd2, that_np, pdf_sample, pdf_real)
-
+        print('%d\t%.2f\t%.4f\t%.4f' % (epoch, t, D_loss_curr, G_loss_curr))
     except TypeError:       # pdf are missing (format as strings)
-        print((epoch, t, D_loss_curr, G_loss_curr, mmd2, that_np, pdf_sample, pdf_real))    
-        print('%d\t%.2f\t%.4f\t%.4f\t%.5f\t%.0f\t %s\t %s' % (epoch, t, D_loss_curr, G_loss_curr, mmd2, that_np, pdf_sample, pdf_real))
+        print('%d\t%.2f\t%.4f\t%.4f' % (epoch, t, D_loss_curr, G_loss_curr))
 
     ## save trace
-    trace.write(' '.join(map(str, [epoch, t, D_loss_curr, G_loss_curr, mmd2, that_np, pdf_sample, pdf_real])) + '\n')
+    trace.write(' '.join(map(str, [epoch, t, D_loss_curr, G_loss_curr, that, pdf_sample, pdf_real])) + '\n')
     if epoch % 10 == 0: 
         trace.flush()
         plotting.plot_trace(identifier, xmax=num_epochs, dp=dp)
@@ -276,24 +292,66 @@ for epoch in range(num_epochs):
         if labels['train'] is not None:
             labels['train'] = labels['train'][perm]
     
-    if epoch % 5 == 0:
+    if epoch % 50 == 0:
         model.dump_parameters(identifier + '_' + str(epoch), sess)
 
 trace.flush()
 plotting.plot_trace(identifier, xmax=num_epochs, dp=dp)
 model.dump_parameters(identifier + '_' + str(epoch), sess)
 
-## after-the-fact evaluation
-#n_test = vali.shape[0]      # using validation set for now TODO
-#n_batches_for_test = floor(n_test/batch_size)
-#n_test_eval = n_batches_for_test*batch_size
-#test_sample = np.empty(shape=(n_test_eval, seq_length, num_signals))
-#test_Z = model.sample_Z(n_test_eval, seq_length, latent_dim, use_time)
-#for i in range(n_batches_for_test):
-#    test_sample[i*batch_size:(i+1)*batch_size, :, :] = sess.run(G_sample, feed_dict={Z: test_Z[i*batch_size:(i+1)*batch_size]})
-#test_sample = np.float32(test_sample)
-#test_real = np.float32(vali[np.random.choice(n_test, n_test_eval, replace=False), :, :])
-## we can only get samples in the size of the batch...
-#heuristic_sigma = median_pairwise_distance(test_real, test_sample)
+
+# after-the-fact evaluation
+
+# train
+vali = samples['train'] # using validation set for now TODO
+n_test = vali.shape[0]      
+n_batches_for_test = floor(n_test/batch_size)
+n_test_eval = n_batches_for_test*batch_size
+test_sample = np.empty(shape=(n_test_eval, seq_length, num_signals))
+test_Z = model.sample_Z(n_test_eval, seq_length, latent_dim, use_time)
+for i in range(n_batches_for_test):
+   test_sample[i*batch_size:(i+1)*batch_size, :, :] = sess.run(G_sample, feed_dict={Z: test_Z[i*batch_size:(i+1)*batch_size]})
+test_sample = np.float32(test_sample)
+test_real = np.float32(vali[np.random.choice(n_test, n_test_eval, replace=False), :, :])
+
+np.savetxt("./experiments/data/{}_train_real.csv".format(data), np.squeeze(test_real), delimiter=",")
+np.savetxt("./experiments/data/{}_train_sample.csv".format(data), np.squeeze(test_sample), delimiter=",")
+
+# validation
+vali = samples['vali'] # using validation set for now TODO
+n_test = vali.shape[0]      
+n_batches_for_test = floor(n_test/batch_size)
+n_test_eval = n_batches_for_test*batch_size
+test_sample = np.empty(shape=(n_test_eval, seq_length, num_signals))
+test_Z = model.sample_Z(n_test_eval, seq_length, latent_dim, use_time)
+for i in range(n_batches_for_test):
+   test_sample[i*batch_size:(i+1)*batch_size, :, :] = sess.run(G_sample, feed_dict={Z: test_Z[i*batch_size:(i+1)*batch_size]})
+test_sample = np.float32(test_sample)
+test_real = np.float32(vali[np.random.choice(n_test, n_test_eval, replace=False), :, :])
+
+np.savetxt("./experiments/data/{}_val_real.csv".format(data), np.squeeze(test_real), delimiter=",")
+np.savetxt("./experiments/data/{}_val_sample.csv".format(data), np.squeeze(test_sample), delimiter=",")
+
+# test
+vali = samples['test'] # using validation set for now TODO
+n_test = vali.shape[0]      
+n_batches_for_test = floor(n_test/batch_size)
+n_test_eval = n_batches_for_test*batch_size
+test_sample = np.empty(shape=(n_test_eval, seq_length, num_signals))
+test_Z = model.sample_Z(n_test_eval, seq_length, latent_dim, use_time)
+for i in range(n_batches_for_test):
+   test_sample[i*batch_size:(i+1)*batch_size, :, :] = sess.run(G_sample, feed_dict={Z: test_Z[i*batch_size:(i+1)*batch_size]})
+test_sample = np.float32(test_sample)
+test_real = np.float32(vali[np.random.choice(n_test, n_test_eval, replace=False), :, :])
+
+np.savetxt("./experiments/data/{}_test_real.csv".format(data), np.squeeze(test_real), delimiter=",")
+np.savetxt("./experiments/data/{}_test_sample.csv".format(data), np.squeeze(test_sample), delimiter=",")
+
+if 'sine' in data:
+    plotting.plot_sine_evaluation(identifier, real_samples=test_real, fake_samples=test_sample, idx=0)
+
+# #we can only get samples in the size of the batch...
+# heuristic_sigma = median_pairwise_distance(test_real, test_sample)
+# print(heuristic_sigma)
 #test_mmd2, that = sess.run(mix_rbf_mmd2_and_ratio(test_real, test_sample, sigmas=heuristic_sigma, biased=False))
-##print(test_mmd2, that)
+#print(test_mmd2, that)

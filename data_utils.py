@@ -1,11 +1,14 @@
 import numpy as np
 import pandas as pd
+import pickle as pkl
 import pdb
 import re
 from time import time
 import json
 import random
 import os
+ 
+import sys  
 
 import model
 import paths
@@ -19,6 +22,11 @@ from math import ceil
 
 from sklearn.metrics.pairwise import rbf_kernel
 from sklearn.preprocessing import MinMaxScaler
+
+def set_trace():
+    from IPython.core.debugger import Pdb
+    import sys
+    Pdb(color_scheme='Linux').set_trace(sys._getframe().f_back)
 
 # --- to do with loading --- #
 def get_samples_and_labels(settings):
@@ -94,7 +102,7 @@ def get_samples_and_labels(settings):
             # this is already one-hot!
 
     if 'predict_labels' in settings and settings['predict_labels']:
-        samples, labels = data_utils.make_predict_labels(samples, labels)
+        samples, labels = make_predict_labels(samples, labels)
         print('Setting cond_dim to 0 from', settings['cond_dim'])
         settings['cond_dim'] = 0
 
@@ -128,11 +136,13 @@ def get_data(data_type, data_options=None):
             samples, labels = load_resized_mnist(14)       # this is the 0-2 setting
     elif data_type == 'gp_rbf':
         print(data_options)
-        samples, pdf = GP(**data_options, kernel='rbf')
+        samples, pdf = GP(data_options, kernel='rbf')
     elif data_type == 'linear':
         samples, pdf = linear(**data_options)
     elif data_type == 'eICU_task':
         samples, labels = eICU_task()
+    elif data_type == 'basque':
+        samples = basque()        
     elif data_type == 'resampled_eICU':
         samples, labels = resampled_eICU(**data_options)
     else:
@@ -198,7 +208,7 @@ def scale_data(train, vali, test, scale_range=(-1, 1)):
     scaled_test = scaler.transform(test_r).reshape(-1, signal_length, num_signals)
     return scaled_train, scaled_vali, scaled_test
 
-def split(samples, proportions, normalise=False, scale=False, labels=None, random_seed=None):
+def split(samples, proportions, normalise=False, scale=False, shuffle=False, labels=None, random_seed=None):
     """
     Return train/validation/test split.
     """
@@ -206,15 +216,21 @@ def split(samples, proportions, normalise=False, scale=False, labels=None, rando
         random.seed(random_seed)
         np.random.seed(random_seed)
     assert np.sum(proportions) == 1
-    n_total = samples.shape[0]
-    n_train = ceil(n_total*proportions[0])
-    n_test = ceil(n_total*proportions[2])
-    n_vali = n_total - (n_train + n_test)
+    n_total = int(samples.shape[0])
+    n_train = int(ceil(n_total*proportions[0]))
+    n_test = int(ceil(n_total*proportions[2]))
+    n_vali = int(n_total - (n_train + n_test))
     # permutation to shuffle the samples
-    shuff = np.random.permutation(n_total)
-    train_indices = shuff[:n_train]
-    vali_indices = shuff[n_train:(n_train + n_vali)]
-    test_indices = shuff[(n_train + n_vali):]
+    if shuffle:
+        shuff = np.random.permutation(n_total)
+        train_indices = shuff[:n_train]
+        vali_indices = shuff[n_train:(n_train + n_vali)]
+        test_indices = shuff[(n_train + n_vali):]
+    else:
+        shuff = np.arange(n_total)
+        train_indices = shuff[:n_train]
+        vali_indices = shuff[n_train:(n_train + n_vali)]
+        test_indices = shuff[(n_train + n_vali):]
     # TODO when we want to scale we can just return the indices
     assert len(set(train_indices).intersection(vali_indices)) == 0
     assert len(set(train_indices).intersection(test_indices)) == 0
@@ -292,6 +308,32 @@ def eICU_task(predict_label=False):
         samples[k] = X.reshape(-1, 16, 4)
     return samples, labels
 
+def basque(seq_length=43, num_signals=1):
+    """
+    Load Basque country placebo data
+    """
+    y = pd.read_csv("data/basque/treated/basque-y.csv") 
+
+    y = np.array(y)
+
+   # samples = y.reshape(-1, seq_length, num_signals) # num_samples x seq_length x num_signals # (16, 43, 1)
+
+    samples = y.reshape(seq_length, y.shape[1], num_signals) # (43, 16, 1)
+
+    print('samples shape', samples.shape) 
+    #val.index = np.ceil(seq_length*0.1)
+
+    # convert it into similar format
+    # labels = {'train': dataY, 'vali': dataY, 'test': dataY}
+    #samples = {'train': y, 'vali': y, 'test': y}
+
+    # reshape
+    # for (k, X) in samples.items():
+    #     samples[k] = X.reshape(-1, seq_length, num_signals)
+    
+    # print('samples re-shaped', samples['train'].shape) # num_samples x seq_length x num_signals # (16, 43, 1)
+    return samples  
+
 def mnist(randomize=False):
     """ Load and serialise """
     try:
@@ -316,6 +358,7 @@ def mnist(randomize=False):
         fixed_permutation = np.random.permutation(28*28)
         samples = train[:, fixed_permutation]
     samples = samples.reshape(-1, 28*28, 1)     # add redundant additional signals
+
     return samples, labels
 
 
@@ -448,6 +491,7 @@ def periodic_kernel(T, f=1.45/30, gamma=7.0, A=0.1):
 
 
 def GP(seq_length=30, num_samples=28*5*100, num_signals=1, scale=0.1, kernel='rbf', **kwargs):
+    seq_length=30
     # the shape of the samples is num_samples x seq_length x num_signals
     samples = np.empty(shape=(num_samples, seq_length, num_signals))
     #T = np.arange(seq_length)/seq_length    # note, between 0 and 1

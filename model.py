@@ -9,9 +9,14 @@ from mod_core_rnn_cell_impl import LSTMCell          #modified to allow initiali
 tf.logging.set_verbosity(tf.logging.ERROR)
 import mmd
 
-from differential_privacy.dp_sgd.dp_optimizer import dp_optimizer
-from differential_privacy.dp_sgd.dp_optimizer import sanitizer
-from differential_privacy.privacy_accountant.tf import accountant
+import dp_optimizer
+import sanitizer
+import accountant
+
+def set_trace():
+    from IPython.core.debugger import Pdb
+    import sys
+    Pdb(color_scheme='Linux').set_trace(sys._getframe().f_back)
 
 # --- to do with latent space --- #
 
@@ -61,6 +66,7 @@ def train_epoch(epoch, samples, labels, sess, Z, X, CG, CD, CS, D_loss, G_loss, 
     """
     Train generator and discriminator for one epoch.
     """
+    global X_mb    
     for batch_idx in range(0, int(len(samples) / batch_size) - (D_rounds + (cond_dim > 0)*G_rounds), D_rounds + (cond_dim > 0)*G_rounds):
         # update the discriminator
         for d in range(D_rounds):
@@ -155,13 +161,13 @@ def WGAN_loss(Z, X, WGAN_clip=False):
 def GAN_loss(Z, X, generator_settings, discriminator_settings, kappa, cond, CG, CD, CS, wrong_labels=False):
     if cond:
         # C-GAN
-        G_sample = generator(Z, **generator_settings, c=CG)
-        D_real, D_logit_real =  discriminator(X, **discriminator_settings, c=CD)
-        D_fake, D_logit_fake = discriminator(G_sample, reuse=True, **discriminator_settings, c=CG)
+        G_sample = generator(Z, c=CG, **generator_settings)
+        D_real, D_logit_real =  discriminator(X, c=CD, **discriminator_settings)
+        D_fake, D_logit_fake = discriminator(G_sample, reuse=True, c=CG, **discriminator_settings)
         
         if wrong_labels:
             # the discriminator must distinguish between real data with fake labels and real data with real labels, too
-            D_wrong, D_logit_wrong = discriminator(X, reuse=True, **discriminator_settings, c=CS)
+            D_wrong, D_logit_wrong = discriminator(X, reuse=True, c=CS, **discriminator_settings)
     else:
         # normal GAN
         G_sample = generator(Z, **generator_settings)
@@ -451,7 +457,6 @@ def invert(settings, epoch, samples, g_tolerance=None, e_tolerance=0.1,
         sess.run(tf.global_variables_initializer())
         error = sess.run(reconstruction_error, feed_dict=fd)
         g_n = sess.run(grad_norm, feed_dict=fd)
-        print(g_n)
         i = 0
         if not n_iter is None:
             while i < n_iter:
@@ -464,7 +469,6 @@ def invert(settings, epoch, samples, g_tolerance=None, e_tolerance=0.1,
                     _ = sess.run(solver, feed_dict=fd)
                     error, g_n = sess.run([reconstruction_error, grad_norm], feed_dict=fd)
                     i += 1
-                    print(error, g_n)
                     if i > max_iter:
                         break
             else:
@@ -472,7 +476,6 @@ def invert(settings, epoch, samples, g_tolerance=None, e_tolerance=0.1,
                     _ = sess.run(solver, feed_dict=fd)
                     error = sess.run(reconstruction_error, feed_dict=fd)
                     i += 1
-                    print(error)
                     if i > max_iter:
                         break
         Zs = sess.run(Z, feed_dict=fd)
